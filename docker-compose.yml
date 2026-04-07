@@ -1,37 +1,21 @@
 services:
-
-  tailscale-openclaw:
-    image: tailscale/tailscale:latest
-    container_name: ts-openclaw
-    hostname: openclaw-remote
+  backend:
+    build: ./backend
+    container_name: clairify-backend
     environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_STATE_DIR=/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun  # Enables kernel-mode routing
-    volumes:
-      - ts-state:/var/lib/tailscale
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
+      - GATEWAY_URL=http://localhost:8080
+    ports:
+      - "8000:8000"
     restart: unless-stopped
 
-  openclaw:
-    image: ghcr.io/open-webui/open-webui:latest
-    container_name: openclaw
-    network_mode: service:tailscale-openclaw
+  gateway:
+    build: ./gateway
+    container_name: clairify-gateway
     environment:
-      - WEBUI_AUTH=false
-      - PORT=8001
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - BYPASS_EMBEDDING_AND_RETRIEVAL=true
-      - RAG_EMBEDDING_ENGINE=openai
-    volumes:
-      - openclaw-data:/app/backend/data
-    depends_on:
-      - tailscale-openclaw
+      - OPENCLAW_IP=${OPENCLAW_IP}
+      - OPENCLAW_PORT=${OPENCLAW_PORT}
+      - OPENCLAW_EMAIL=${OPENCLAW_EMAIL:-admin@localhost}
+      - OPENCLAW_PASSWORD=${OPENCLAW_PASSWORD:-admin}
+    ports:
+      - "8080:8080"
     restart: unless-stopped
-
-volumes:
-  ts-state:
-  openclaw-data:

@@ -1,0 +1,39 @@
+services:
+  tailscale-openclaw:
+    image: tailscale/tailscale:latest
+    container_name: ts-openclaw-isolated
+    hostname: openclaw-production
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY_OPENCLAW}
+      - TS_STATE_DIR=/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ts-openclaw-state:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    restart: unless-stopped
+
+  openclaw:
+    image: ghcr.io/open-webui/open-webui:latest
+    container_name: openclaw-production
+    network_mode: service:tailscale-openclaw
+    environment:
+      - WEBUI_AUTH=false
+      - PORT=8001
+      - OFFLINE_MODE=true
+      - HF_HUB_OFFLINE=1
+      - RAG_EMBEDDING_MODEL_AUTO_UPDATE=false
+      - RAG_RERANKING_MODEL_AUTO_UPDATE=false
+      - WHISPER_MODEL_AUTO_UPDATE=false
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - openclaw-data:/app/backend/data
+    depends_on:
+      - tailscale-openclaw
+    restart: unless-stopped
+
+volumes:
+  ts-openclaw-state:
+  openclaw-data:

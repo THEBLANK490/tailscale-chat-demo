@@ -1,4 +1,4 @@
-# Clairify ↔ OpenClaw Chat — Tailscale POC
+# Clairify <-> OpenClaw Chat - Tailscale POC
 
 A proof of concept demonstrating how Clairify app users can chat
 directly with an OpenClaw instance over a secure Tailscale network,
@@ -10,7 +10,7 @@ with the backend only handling authentication.
 
 - Docker
 - [Python 3.11+](https://www.python.org/downloads/)
-- Internet connection (for first-time setup)
+- Internet connection for first-time setup
 
 ---
 
@@ -18,99 +18,204 @@ with the backend only handling authentication.
 
 1. Download from [https://tailscale.com/download/windows](https://tailscale.com/download/windows)
 2. Install and open it
-3. Click **Log in** (use Google / Microsoft / GitHub)
-4. After login, verify it's working:
-    - tailscale status
-5. You should see your machine listed with a 100.x.x.x IP.
-6. Generate an Auth Key
-7. Go to https://login.tailscale.com/admin/settings/keys
-8. Click Generate auth key
+3. Click **Log in** using Google, Microsoft, or GitHub
+4. Verify it is working:
+   - `tailscale status`
+5. You should see your machine listed with a `100.x.x.x` IP
+6. Generate an auth key
+7. Go to `https://login.tailscale.com/admin/settings/keys`
+8. Click **Generate auth key**
 
-Copy the key (starts with tskey-auth-...)
+Copy the key. It will start with `tskey-auth-...`
 
-### Step 2: Install Ollama
-Ollama runs AI models locally. OpenClaw needs it to generate chat responses.
+## Step 2: Install Ollama
 
-1. Download from https://ollama.com/download
+Ollama runs AI models locally. OpenClaw uses it to generate chat responses.
+
+1. Download from `https://ollama.com/download`
 2. Install and open it
 3. Pull a model:
-   - ollama pull llama3.2
-
+   - `ollama pull llama3.2`
+   - or `ollama pull tinyllama:latest`
 4. Start Ollama:
-   - ollama serve
-5. Verify it's running:
-   - curl http://localhost:11434/api/tags
-6. You should see a JSON response listing your model.
+   - `ollama serve`
+5. Verify it is running:
+   - `curl http://localhost:11434/api/tags`
+6. You should see a JSON response listing your model
 
+## Step 3: Clone and Configure
 
-### Step 3: Clone & Configure
+1. Clone the repo:
+   - `git clone <repo-url>`
+   - `cd tailscale-chat-demo`
 
-1. - git clone <repo-url>
-   - cd tailscale-chat-demo
-2. Create a .env file and putin the auth key as 
-   - TS_AUTHKEY=tskey-auth-xxxxx-xxx
+2. Create a root `.env` file using `.env.example` as the template.
+   Example values:
+   - `TS_AUTHKEY_GATEWAY=tskey-auth-xxxx`
+   - `TS_AUTHKEY_OPENCLAW=tskey-auth-yyyy`
+   - `BACKEND_PORT=8000`
+   - `GATEWAY_PORT=8080`
+   - `OPENCLAW_HOSTNAME=openclaw-production`
+   - `OPENCLAW_PORT=8001`
 
+3. The root `.env` is used by the backend and gateway stack.
 
-### Step 4: Install Python Dependencies
-1. Activate the virtual env as:
-  - python -m venv venv
-  - .\venv\Scripts\activate
+4. Create a .env inside the openclaw floder as well and put the TS_AUTHKEY_OPENCLAW in the .env.
 
-2. Install backend requirements 
-  - cd backend
-  - pip install -r requirements.txt
+5. This .env is used by the openclaw
 
-3. Install client requirements (acts as frontend for this demo)
-  - cd ..\client
-  - pip install -r requirements.txt
+## Step 4: Install Python Dependencies
 
-### Step 5: Start OpenClaw (Docker)
-1. Run docker compose as:
-   - docker-compose up --build
-2. Verify OpenClaw is Reachable via Tailscale
-   - tailscale status
-        - Should show: 100.x.x.x  openclaw-remote  linux  active
-    - Test connectivity
-        - tailscale ping openclaw-remote
-             - Should show: pong from openclaw-remote (100.x.x.x) via ... in Xms
-    - Test HTTP
-        - curl http://<TAILSCALE_IP>:8001/
-        - Should return HTML (200 OK)
+1. Create and activate a virtual environment:
+   - `python -m venv venv`
+   - `.\venv\Scripts\activate`
 
-### Step 6: Start Backend
+2. Install backend requirements if you want to run backend outside Docker: (Optional)
+   - `cd backend`
+   - `pip install -r requirements.txt`
+
+3. Install client requirements:
+   - `cd ..\client`
+   - `pip install -r requirements.txt`
+
+4. Install gateway requirements if you want to run gateway outside Docker: (Optional)
+   - `cd ..\gateway`
+   - `pip install -r requirements.txt`
+
+## Step 5: Start OpenClaw
+
 1. Open a new terminal:
-   - ``` 
-        cd tailscale-chat-demo
-        .\venv\Scripts\activate
-        cd backend
-        python main.py
-     ```
+   ```
+   cd tailscale-chat-demo\openclaw
+   docker compose up --build -d
+   ```
 
+2. Verify the OpenClaw stack is running:
+   ```
+   docker compose ps
+   ```
 
-### Step 7: Run Client
+3. Check logs if startup is taking time:
+   ```
+   docker logs --tail 120 openclaw-production
+   docker logs --tail 120 ts-openclaw-isolated
+   ```
+
+4. Notes:
+   - `openclaw-production` runs Open WebUI
+   - `ts-openclaw-isolated` is the Tailscale sidecar that gives OpenClaw its tailnet IP
+   - On first startup, OpenClaw can take a little time before it becomes reachable
+
+## Step 6: Update the Root `.env` with the Current OpenClaw IP
+
+1. After the OpenClaw stack joins Tailscale, confirm its current tailnet IP.
+
+2. Update the root `.env` file:
+   ```env
+   OPENCLAW_IP=<current tailscale ip>
+   OPENCLAW_PORT=8001
+   ```
+
+3. Notes:
+   - The gateway reads `OPENCLAW_IP` from the root `.env`
+   - If the OpenClaw Tailscale IP changes, update the root `.env` before starting or restarting the root stack
+
+## Step 7: Start Backend and Gateway
+
+1. Open a new terminal at the repo root:
+   ```
+   cd tailscale-chat-demo
+   docker compose up --build -d
+   ```
+
+2. Verify both services are running:
+   ```
+   docker compose ps
+   ```
+
+3. Optional health checks:
+   ```
+   curl http://localhost:8000/health
+   curl http://localhost:8080/health
+   ```
+
+4. Notes:
+   - `backend` runs on `http://localhost:8000`
+   - `gateway` runs on `http://localhost:8080`
+   - `gateway` forwards chat requests to OpenClaw over Tailscale
+
+## Step 8: Run the Client
+
 1. Open a new terminal:
-   - ``` 
-        cd tailscale-chat-demo
-        .\venv\Scripts\activate
-        cd client
-        python main.py
-     ```
+   ```
+   cd tailscale-chat-demo
+   .\venv\Scripts\activate
+   cd client
+   python main.py
+   ```
 
-# You should see users authenticating, connecting directly to OpenClaw via Tailscale, and receiving AI responses — all without the backend being involved in the chat.
+2. Expected flow:
+   - client authenticates with backend
+   - backend returns a session token and gateway URL
+   - client sends chat requests to gateway
+   - gateway forwards them to OpenClaw over Tailscale
 
+You should now see users authenticate with the backend and then chat through the gateway to OpenClaw.
 
-### Terminal Summary 
-1. You need 4 terminals running:
-    - Terminal 1: ollama serve
-    - Terminal 2: docker-compose up
-    - Terminal 3: cd backend && python main.py
-    - Terminal 4: cd client && python main.py
+## Optional: Run Backend or Gateway Without Docker
 
-### Troubleshooting
-Problem	                            Fix
-OpenClaw not reachable	            Wait for OpenClaw to finish starting. Check docker logs openclaw
-tailscale status shows offline	    Delete stale nodes at admin panel, then docker-compose down -v && docker-compose up
-No model found	                    Make sure Ollama is running (ollama serve) and you've pulled a model (ollama pull llama3.2)
-curl returns connection refused	    OpenClaw is still starting. Wait for Uvicorn running in Docker logs
-Docker can't pull images	        Check internet connection and Docker Desktop is running
-TS_AUTHKEY error	                Make sure .env file exists and the key is valid
+1. Backend:
+   ```
+   cd tailscale-chat-demo
+   .\venv\Scripts\activate
+   cd backend
+   python -m uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+
+2. Gateway:
+   ```
+   cd tailscale-chat-demo
+   .\venv\Scripts\activate
+   cd gateway
+   $env:OPENCLAW_IP="<current tailscale ip>"
+   $env:OPENCLAW_PORT="8001"
+   python -m uvicorn main:app --host 0.0.0.0 --port 8080
+   ```
+
+## Terminal Summary
+
+You usually need these running:
+
+- Terminal 1: `ollama serve`
+- Terminal 2: `cd openclaw && docker compose up --build -d`
+- Terminal 3: `cd tailscale-chat-demo && docker compose up --build -d`
+- Terminal 4: `cd client && python main.py`
+
+## Troubleshooting
+
+`Gateway returns 404 Not Found`
+- Restart the gateway service or the root docker stack. A stale old process may still be using port `8080`.
+
+`Gateway returns 503 Cannot connect`
+- OpenClaw is not reachable yet. Check `docker compose ps` inside `openclaw` and confirm `OPENCLAW_IP` in the root `.env`.
+
+`Gateway returns 401 Not authenticated`
+- Make sure the gateway is running the latest code and can sign in to the current OpenClaw instance.
+
+`OpenClaw not reachable`
+- Wait for OpenClaw to finish starting. Check `docker logs --tail 120 openclaw-production`.
+
+`OpenClaw container is unhealthy`
+- Review the OpenClaw logs. Startup may still be in progress.
+
+`No model found`
+- Make sure Ollama is running and that a model such as `tinyllama:latest` or `llama3.2` is available.
+
+`Client says ModuleNotFoundError`
+- Activate the virtual environment and install `client/requirements.txt`.
+
+`Docker cannot pull images`
+- Check internet connection and make sure Docker Desktop is running.
+
+`TS_AUTHKEY error`
+- Make sure the correct `.env` file exists and the auth key is valid.
