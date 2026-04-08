@@ -6,6 +6,11 @@ services:
       - GATEWAY_URL=http://localhost:8080
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 
   gateway:
@@ -13,9 +18,19 @@ services:
     container_name: clairify-gateway
     environment:
       - OPENCLAW_IP=${OPENCLAW_IP}
-      - OPENCLAW_PORT=${OPENCLAW_PORT}
+      - OPENCLAW_PORT=${OPENCLAW_PORT:-8001}
       - OPENCLAW_EMAIL=${OPENCLAW_EMAIL:-admin@localhost}
       - OPENCLAW_PASSWORD=${OPENCLAW_PASSWORD:-admin}
+      - MAX_CONNECTIONS=${MAX_CONNECTIONS:-50}
+      - MAX_KEEPALIVE_CONNECTIONS=${MAX_KEEPALIVE_CONNECTIONS:-20}
+      - ENABLE_CACHE=${ENABLE_CACHE:-true}
+      - CACHE_TTL=${CACHE_TTL:-300}
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
+    
