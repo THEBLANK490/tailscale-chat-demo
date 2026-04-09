@@ -2,12 +2,17 @@ import httpx
 import asyncio
 import time
 import sys
-
 import json
 import websockets
 
 BACKEND_URL = "http://localhost:8000"
 GATEWAY_WS_URL = "ws://localhost:8080/ws/chat"
+LOGIN_PAYLOAD = {
+    "user_id": "alice",
+    "password": "pass1",
+}
+ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc1NzUzMTg2LCJpYXQiOjE3NzU3NDk1ODYsImp0aSI6IjU4N2ZkYzY5NGY1ZDQ3YjlhNzA3ZDFjN2Y5MTY3YTNlIiwidXNlcl9pZCI6ImQ1MDgxMTAyLTRkZDEtNDE3Yy1iM2MyLTJiYTM1OGY3YmIyOSJ9.uZmH24AjynC7Cx524nYr-_twlM7fDr7nwZp8uSFk0co"
+# we need to add this access token from webdev
 
 
 def print_separator():
@@ -37,8 +42,10 @@ async def test_websocket_chat():
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
-                f"{BACKEND_URL}/auth/chat",
-                json={"user_id": "alice", "password": "pass1"}
+                f"{BACKEND_URL}/api/v1/auth/chat/",
+                headers={
+                    "Authorization": f"Bearer {ACCESS_TOKEN}"
+                }
             )
     except httpx.ConnectError:
         print("\n  Cannot connect to backend")
@@ -52,28 +59,32 @@ async def test_websocket_chat():
         print(f"\n  Authentication failed: {response.json()}")
         return
 
-    auth_data = response.json()
+    auth_data = response.json().get("data")
     auth_time = round((time.time() - start_time) * 1000, 2)
+    user = auth_data["user"]
+    access_token = auth_data["access_token"]
+    gateway_url = auth_data.get("gateway_url", "http://localhost:8080")
+    gateway_ws_url = gateway_url.replace(
+        "http://", "ws://").replace("https://", "wss://") + "/ws/chat"
 
-    print(f"\n  Authenticated as: {auth_data['user_id']}")
+    print(f"\n  Authenticated as: {user['user_name']}")
+    print(f"  User ID: {user['user_id']}")
+    print(f"  Username: {user['username']}")
     print(f"  Auth time: {auth_time}ms")
-    print(f"  Session token: {auth_data['session_token'][:20]}...")
-
-    session_token = auth_data['session_token']
-    user_id = auth_data['user_id']
+    print(f"  Access token: {access_token[:20]}...")
 
     # WEBSOCKET CONNECTION
     print_section("PHASE 2: WebSocket Connection")
-    print(f"\n  Connecting to: {GATEWAY_WS_URL}")
+    print(f"\n  Connecting to: {gateway_ws_url}")
 
     try:
-        async with websockets.connect(GATEWAY_WS_URL) as websocket:
+        async with websockets.connect(gateway_ws_url) as websocket:
             print("  WebSocket connected")
 
             # Authenticate WebSocket
             await websocket.send(json.dumps({
-                "token": session_token,
-                "user_id": user_id
+                "token": access_token,
+                "user_id": user["user_id"]
             }))
 
             # Wait for auth response
@@ -86,7 +97,7 @@ async def test_websocket_chat():
 
             if auth_result.get("type") == "authenticated":
                 print("  WebSocket authenticated")
-                print(f" Client ID: {auth_result.get('client_id')}")
+                print(f"  Client ID: {auth_result.get('client_id')}")
 
             # CHAT MESSAGES
             print_section("PHASE 3: Chat Messages (Streaming)")

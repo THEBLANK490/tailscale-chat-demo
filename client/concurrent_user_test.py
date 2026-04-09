@@ -16,6 +16,8 @@ TEST_USERS = [
     {"user_id": "alice", "password": "pass1"},
     {"user_id": "bob", "password": "pass2"},
 ]
+ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzc1NzUzMTg2LCJpYXQiOjE3NzU3NDk1ODYsImp0aSI6IjU4N2ZkYzY5NGY1ZDQ3YjlhNzA3ZDFjN2Y5MTY3YTNlIiwidXNlcl9pZCI6ImQ1MDgxMTAyLTRkZDEtNDE3Yy1iM2MyLTJiYTM1OGY3YmIyOSJ9.uZmH24AjynC7Cx524nYr-_twlM7fDr7nwZp8uSFk0co"
+# we need to add this access token from webdev
 
 
 @dataclass
@@ -28,14 +30,34 @@ class RequestResult:
 
 
 async def authenticate(
-    backend_url: str, credentials: dict[str, str]
-) -> tuple[str, str]:
-    """Authenticate with backend and get token"""
+    backend_url: str, credentials: dict[str, str], ws_url_fallback: str
+) -> tuple[str, str, str]:
+    """Authenticate with backend and get gateway token, user id, and websocket URL"""
     async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(f"{backend_url}/auth/chat", json=credentials)
+        response = await client.post(
+            f"{backend_url}/api/v1/auth/chat/",
+            headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+        )
         response.raise_for_status()
         payload = response.json()
-        return payload["session_token"], payload["user_id"]
+        auth_data = payload.get("data") or {}
+        user = auth_data.get("user") or {}
+        gateway_url = auth_data.get("gateway_url")
+        gateway_ws_url = ws_url_fallback
+
+        if gateway_url:
+            gateway_ws_url = (
+                gateway_url.replace("http://", "ws://").replace("https://", "wss://")
+                + "/ws/chat"
+            )
+
+        access_token = auth_data.get("access_token")
+        user_id = user.get("user_id")
+
+        if not access_token or not user_id:
+            raise ValueError(f"unexpected auth response: {payload}")
+
+        return access_token, user_id, gateway_ws_url
 
 
 async def send_websocket_chat(
@@ -93,10 +115,14 @@ async def send_websocket_chat(
                     break
 
                 elif data.get("type") == "error":
+                    detail = data.get("detail")
+                    error_message = data.get("message") or "unknown_error"
+                    if detail:
+                        error_message = f"{error_message} | detail: {detail}"
                     return RequestResult(
                         ok=False,
                         latency_ms=(time.perf_counter() - start) * 1000,
-                        error=data.get("message")
+                        error=error_message
                     )
 
             latency_ms = (time.perf_counter() - start) * 1000
@@ -140,7 +166,11 @@ async def run_virtual_user(
 
     async with semaphore:
         try:
-            session_token, user_id = await authenticate(args.backend_url, credentials)
+            session_token, user_id, ws_url = await authenticate(
+                args.backend_url,
+                credentials,
+                args.ws_url,
+            )
         except Exception as exc:
             results.append(
                 RequestResult(
@@ -158,7 +188,7 @@ async def run_virtual_user(
             )
 
             result = await send_websocket_chat(
-                args.ws_url,
+                ws_url,
                 session_token,
                 user_id,
                 args.model,
@@ -214,7 +244,11 @@ async def main() -> None:
     parser.add_argument("--messages", type=int, default=1, help="Messages per user")
     parser.add_argument("--concurrency", type=int, default=5, help="Max concurrent users")
     parser.add_argument("--backend-url", default=BACKEND_URL, help="Backend URL")
-    parser.add_argument("--ws-url", default=GATEWAY_WS_URL, help="Gateway WebSocket URL")
+    parser.add_argument(
+        "--ws-url",
+        default=GATEWAY_WS_URL,
+        help="Gateway WebSocket URL fallback if backend does not return gateway_url",
+    )
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Model to use")
     args = parser.parse_args()
 
@@ -225,7 +259,7 @@ async def main() -> None:
     print("WebSocket Concurrent Load Test")
     print("=" * 70)
     print(f"Backend URL: {args.backend_url}")
-    print(f"WebSocket URL: {args.ws_url}")
+    print(f"WebSocket URL fallback: {args.ws_url}")
     print(f"Model: {args.model}")
     print(f"Virtual users: {args.users}")
     print(f"Messages per user: {args.messages}")
