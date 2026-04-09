@@ -10,6 +10,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from config import config
+from utils import verify_token
 
 app = FastAPI(title="Clairify Gateway")
 
@@ -245,14 +246,26 @@ async def websocket_chat(websocket: WebSocket):
             return
 
         token = auth_data.get("token")
-
         if not token:
             await websocket.send_json({"type": "error", "message": "Missing token"})
             await websocket.close(code=1008)
             return
 
-        # Simple token validation (in production need validate against backend)
-        user_id = auth_data.get("user_id", "unknown")
+        try:
+            auth_payload = verify_token(token)
+        except Exception as exc:
+            reason = getattr(exc, "reason", str(exc))
+            await websocket.send_json({"type": "error", "message": reason})
+            await websocket.close(code=1008)
+            return
+
+        user_id = (
+            auth_payload.get("user_id")
+            or auth_payload.get("id")
+            or auth_payload.get("username")
+            or auth_payload.get("email")
+            or auth_payload.get("sub")
+        )
         client_id = hashlib.md5(f"{token}{user_id}".encode()).hexdigest()[:12]
 
         # Register connection (don't accept again)
@@ -266,7 +279,7 @@ async def websocket_chat(websocket: WebSocket):
             "message": "WebSocket connection established"
         })
 
-        print(f"Client {client_id} authenticated as {user_id}")
+        print(f"Client {client_id} authenticated as {user_id} via JWT verification")
 
         # PHASE 2: MESSAGE HANDLING LOOP
         while True:
@@ -355,12 +368,15 @@ async def handle_chat_request(websocket: WebSocket, client_id: str, data: dict):
                 headers=headers,
             )
 
-        # Handle 400 (model not found)
-        if response.status_code == 400 and "Model not found" in response.text:
+        # Handle 400 model errors from OpenClaw with a second fallback attempt
+        if response.status_code == 400:
             models = await openclaw_client.get_available_models()
-            if models:
+            if models and request.model != models[0]:
                 fallback_model = models[0]
-                print(f"Model '{request.model}' not found, using '{fallback_model}'")
+                print(
+                    f"Retrying chat for {client_id} with fallback model "
+                    f"'{fallback_model}' after OpenClaw 400"
+                )
 
                 request.model = fallback_model
                 response = await openclaw_client.client.post(
@@ -463,6 +479,8 @@ async def health():
         "openclaw_authenticated": openclaw_client.token is not None,
         "token_refreshed_at": openclaw_client.token_refreshed_at.isoformat() if openclaw_client.token_refreshed_at else None,
         "active_websockets": len(manager.active_connections),
+        "jwt_algorithm": config.JWT_ALGORITHM,
+        "jwt_signing_key_configured": bool(config.JWT_SIGNING_KEY),
         "optimizations": [
             "HTTP/2 Connection Pooling",
             "WebSocket Streaming",

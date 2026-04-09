@@ -18,5 +18,9 @@ class Config:
     # WebSocket
     WS_HEARTBEAT_INTERVAL = int(os.getenv("WS_HEARTBEAT_INTERVAL", "30"))  # seconds
 
+    # JWT
+    JWT_SIGNING_KEY = os.getenv("JWT_SIGNING_KEY")
+    JWT_ALGORITHM = os.getenv("JWT_ALGORITHM")
+
 
 config = Config()
